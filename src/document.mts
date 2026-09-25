@@ -267,17 +267,14 @@ export enum HtmlParseOption {
  */
 export interface HtmlParseOptions {
     /**
-     * The URL of the document, used as the base for resolving relative URLs and as the
-     * `file` reported on {@link XmlDocument.warnings}.
-     *
-     * It can be used as a base to calculate the URL of other included documents.
+     * The URL of the document, used as the base for relative URLs and as the `file`
+     * reported on {@link XmlDocument.warnings}.
      */
     url?: string;
     /**
      * The encoding of the input.
      *
-     * @default Sniffed from a `<meta charset>`/BOM, falling back to windows-1252
-     * (see `HTMLparser.c`; libxml2's HTML parser defaults to windows-1252, not ISO-8859-1).
+     * @default Sniffed from a `<meta charset>`/BOM, falling back to windows-1252.
      */
     encoding?: string;
     /** Parser options, combined with bitwise OR. */

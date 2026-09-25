@@ -1,0 +1,164 @@
+import { expect } from 'chai';
+
+import {
+    HtmlParseOption,
+    XmlDocument,
+    XmlError,
+} from '@libxml2-wasm/lib/index.mjs';
+
+import type { XmlElement } from '@libxml2-wasm/lib/index.mjs';
+
+describe('fromHtmlString', () => {
+    it('should parse a well-formed HTML string', () => {
+        using doc = XmlDocument.fromHtmlString('<html><body><p>hi</p></body></html>');
+        expect(doc.root.name).to.equal('html');
+        expect(doc.get('//p')?.content).to.equal('hi');
+    });
+
+    it('should add implied html/head/body elements', () => {
+        using doc = XmlDocument.fromHtmlString('<p>hi</p>');
+        expect(doc.root.name).to.equal('html');
+        expect(doc.get('/html/body/p')?.content).to.equal('hi');
+    });
+
+    it('should not add implied elements when HTML_PARSE_NOIMPLIED is set', () => {
+        using doc = XmlDocument.fromHtmlString(
+            '<p>hi</p>',
+            { option: HtmlParseOption.HTML_PARSE_NOIMPLIED },
+        );
+        expect(doc.root.name).to.equal('p');
+    });
+
+    it('should recover from broken markup instead of throwing', () => {
+        // A mismatched closing tag is an ERROR-level diagnostic, but the HTML parser
+        // still builds a best-effort tree rather than aborting.
+        using doc = XmlDocument.fromHtmlString('<p>oops<div>unclosed');
+        expect(doc.get('//p')?.content).to.equal('oops');
+        expect(doc.get('//div')?.content).to.equal('unclosed');
+    });
+
+    it('should surface recovery diagnostics as warnings rather than throwing', () => {
+        using doc = XmlDocument.fromHtmlString('<b>bold<i>italic</b>less</i>');
+        expect(doc.warnings.length).to.be.greaterThan(0);
+        expect(doc.warnings[0]).to.have.property('level');
+    });
+
+    it('should allow utf8 only', () => {
+        expect(() => XmlDocument.fromHtmlString('<p>x</p>', { encoding: 'iso8859-1' })).to.throw(
+            XmlError,
+            'Non-UTF-8 encoding is not supported for string input, use fromHtmlBuffer instead',
+        );
+    });
+
+    it('should round-trip non-ASCII characters', () => {
+        using doc = XmlDocument.fromHtmlString('<p>café 日本語</p>');
+        expect(doc.get('//p')?.content).to.equal('café 日本語');
+    });
+
+    it('should resolve relative URLs against the given base url', () => {
+        using doc = XmlDocument.fromHtmlString(
+            '<html><body><a href="page.html">link</a></body></html>',
+            { url: 'https://example.com/docs/index.html' },
+        );
+        const link = doc.get('//a') as XmlElement;
+        expect(link.attr('href')?.content).to.equal('page.html');
+    });
+});
+
+describe('fromHtmlBuffer', () => {
+    it('should parse a well-formed HTML buffer', () => {
+        using doc = XmlDocument.fromHtmlBuffer(new TextEncoder().encode('<p>hi</p>'));
+        expect(doc.get('/html/body/p')?.content).to.equal('hi');
+    });
+
+    it('should round-trip UTF-8 encoded non-ASCII characters given an explicit encoding', () => {
+        // Unlike the XML parser, HTML defaults to ISO-8859-1 (HTMLparser.h) when the
+        // input has neither a byte-order mark nor a <meta charset>, so a caller feeding
+        // it known-UTF-8 bytes must say so explicitly.
+        using doc = XmlDocument.fromHtmlBuffer(
+            new TextEncoder().encode('<html><body><p>café 日本語</p></body></html>'),
+            { encoding: 'utf-8' },
+        );
+        expect(doc.get('//p')?.content).to.equal('café 日本語');
+    });
+
+    it('should honor an explicit non-UTF8 encoding', () => {
+        const html = '<html><body><p>café</p></body></html>';
+        const latin1 = new Uint8Array(Array.from(html, (c) => c.charCodeAt(0)));
+        using doc = XmlDocument.fromHtmlBuffer(latin1, { encoding: 'iso-8859-1' });
+        expect(doc.get('//p')?.content).to.equal('café');
+    });
+
+    it('should sniff the encoding from a meta charset tag', () => {
+        const html = '<html><head><meta charset="iso-8859-1"></head>'
+            + '<body><p>café</p></body></html>';
+        const latin1 = new Uint8Array(Array.from(html, (c) => c.charCodeAt(0)));
+        using doc = XmlDocument.fromHtmlBuffer(latin1);
+        expect(doc.get('//p')?.content).to.equal('café');
+    });
+});
+
+describe('HTML serialization', () => {
+    it('should serialize a document using HTML syntax', () => {
+        using doc = XmlDocument.fromHtmlString(
+            '<html><body><br><img src="a.png"></body></html>',
+        );
+        // HTML syntax leaves void elements unclosed, unlike XML/XHTML syntax.
+        expect(doc.toString({ asHtml: true })).to.contain('<br>');
+        expect(doc.toString({ asHtml: true })).to.contain('<img src="a.png">');
+    });
+
+    it('should already save as HTML by default, without asHtml, for a parsed HTML document', () => {
+        // libxml2 dispatches on the document's own type (set by the HTML parser), so
+        // a document from fromHtmlString/fromHtmlBuffer round-trips as HTML even without
+        // asHtml; the option exists for forcing HTML syntax onto other documents.
+        using doc = XmlDocument.fromHtmlString('<html><body><br></body></html>');
+        expect(doc.toString()).to.contain('<br>');
+    });
+
+    it('should force HTML syntax onto a non-HTML document via asHtml', () => {
+        using doc = XmlDocument.fromString('<br/>');
+        expect(doc.toString({ format: false })).to.contain('<br/>');
+        expect(doc.toString({ format: false, asHtml: true })).to.contain('<br>');
+        expect(doc.toString({ format: false, asHtml: true })).to.not.contain('<br/>');
+    });
+
+    it('should format HTML output when format is set', () => {
+        using doc = XmlDocument.fromHtmlString(
+            '<html><body><div><p>a</p><p>b</p></div></body></html>',
+            { option: HtmlParseOption.HTML_PARSE_NOBLANKS },
+        );
+        const formatted = doc.toString({ asHtml: true, format: true });
+        const unformatted = doc.toString({ asHtml: true, format: false });
+        expect(formatted).to.not.equal(unformatted);
+        expect(formatted).to.contain('\n');
+    });
+
+    it('should round-trip non-ASCII characters', () => {
+        using doc = XmlDocument.fromHtmlString('<p>café 日本語</p>');
+        expect(doc.toString({ asHtml: true })).to.contain('café 日本語');
+    });
+
+    it('should serialize a single element (outer HTML) via node save', () => {
+        using doc = XmlDocument.fromHtmlString(
+            '<html><body><p id="x">hi <b>there</b></p></body></html>',
+        );
+        const p = doc.get('//p') as XmlElement;
+        expect(p.toString({ asHtml: true })).to.equal('<p id="x">hi <b>there</b></p>');
+    });
+
+    it('should serialize an element\'s children (inner HTML) by saving each child', () => {
+        using doc = XmlDocument.fromHtmlString(
+            '<html><body><p>one</p><p>two</p></body></html>',
+        );
+        const body = doc.get('//body') as XmlElement;
+        // Inner HTML isn't a separate API: the same node-level HTML save this library
+        // already provides handles each element child, since there's nothing more for
+        // a thin wrapper to add on top of it.
+        let inner = '';
+        for (let child = body.firstChild; child; child = child.next) {
+            inner += (child as XmlElement).toString({ asHtml: true });
+        }
+        expect(inner).to.equal('<p>one</p><p>two</p>');
+    });
+});

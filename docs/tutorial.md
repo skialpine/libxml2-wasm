@@ -40,6 +40,21 @@ import('libxml2-wasm').then(({ XmlDocument }) => {
 });
 ```
 
+## Parsing HTML
+
+Use {@link libxml2-wasm!XmlDocument.fromHtmlString | `XmlDocument.fromHtmlString`} (or
+{@link libxml2-wasm!XmlDocument.fromHtmlBuffer | `fromHtmlBuffer`}) to parse HTML instead of XML.
+The HTML parser recovers from broken markup rather than throwing,
+and adds implied `<html>`/`<head>`/`<body>` elements as needed.
+
+```js
+import { XmlDocument } from 'libxml2-wasm';
+const doc = XmlDocument.fromHtmlString('<p>Hello, <b>world</p>');
+console.log(doc.get('//p')?.content); // Hello, world
+console.log(doc.toString({ asHtml: true })); // serialize back as HTML syntax
+doc.dispose();
+```
+
 **Important Note:**
 
 Remember to call the {@link libxml2-wasm!disposable.XmlDisposable#dispose | `dispose()`} method on the XmlDocument instance to prevent memory leaks.

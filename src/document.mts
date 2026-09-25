@@ -257,9 +257,7 @@ export enum HtmlParseOption {
     HTML_PARSE_IGNORE_ENC = 1 << 21,
     /** Enable reporting of line numbers larger than 65535. */
     HTML_PARSE_BIG_LINES = 1 << 22,
-    // HTML_PARSE_HTML5 (1 << 26) is intentionally not exposed: per HTMLparser.h it only
-    // drives the tokenizer's SAX callbacks and libxml2 doesn't yet build a tree from it,
-    // so it can't be honored by an API that always returns a parsed XmlDocument.
+    // HTML_PARSE_HTML5 is omitted: libxml2 builds no tree from it yet.
 }
 
 /**
@@ -299,9 +297,7 @@ function parse<Input>(
     url: string | null,
     options: { encoding?: string; option?: number },
     newCtxt: () => XmlParserCtxtPtr = xmlNewParserCtxt,
-    // The HTML parser always recovers from broken markup and still builds a tree
-    // (HTMLparser.h: "HTML_PARSE_RECOVER: No effect as of 2.14.0" - recovery is
-    // unconditional), so an ERROR-level diagnostic there doesn't mean parsing failed.
+    // The HTML parser always recovers, so its error-level diagnostics are not failures.
     alwaysRecovers = false,
     noDocMessage = 'Failed to parse XML',
 ): XmlDocument {
@@ -319,15 +315,13 @@ function parse<Input>(
     let warnings: ErrorDetail[] = [];
     try {
         const errDetails = error.storage.get(errIndex);
-        // For XML, warnings (level 1) are non-fatal, but an error/fatal diagnostic (or a
-        // null result) means no usable document was produced, so it's a parse failure.
-        // For HTML (alwaysRecovers), only a null result counts: the parser recovers from
-        // broken markup and still builds a tree regardless of diagnostic level.
+        // Warnings (level 1) are non-fatal: libxml2 still returns a valid document.
+        // Only error/fatal diagnostics, or a null result, count as a parse failure.
         const fatal = !alwaysRecovers && errDetails.some((d) => d.level >= XML_ERR_ERROR);
         if (fatal || !xml) {
             if (xml) {
-                // A document was produced (e.g. XML_PARSE_RECOVER, or any HTML parse) but
-                // is being discarded; free it here since no wrapper/finalizer will own it.
+                // A document was produced (e.g. XML_PARSE_RECOVER) but is being
+                // discarded; free it here since no wrapper/finalizer will own it.
                 xmlFreeDoc(xml);
             }
             throw new XmlParseError(
@@ -337,8 +331,8 @@ function parse<Input>(
                 errDetails,
             );
         }
-        // Every diagnostic here is non-fatal for XML, or simply recoverable for HTML;
-        // surface it on the document before the storage slot is freed below.
+        // Every diagnostic here is non-fatal; surface it on the document
+        // before the storage slot is freed below.
         warnings = errDetails;
     } finally {
         error.storage.free(errIndex);
@@ -374,11 +368,8 @@ export class XmlDocument extends XmlDisposable<XmlDocument> {
      * ({@link ErrorDetail.level} === 1) diagnostics; an error-or-above diagnostic instead
      * aborts the parse and is thrown as {@link XmlParseError}.
      *
-     * For {@link fromHtmlString} and {@link fromHtmlBuffer}, the HTML parser always
-     * recovers from broken markup and still builds a tree, so this can also hold
-     * error-level diagnostics; {@link XmlParseError} is only thrown when no document
-     * could be produced at all (e.g. empty input). An unrecognized `encoding` doesn't
-     * count as a failure either: it falls back to sniffing and reports a warning.
+     * For {@link fromHtmlString} and {@link fromHtmlBuffer}, this can also hold error-level
+     * diagnostics, because the HTML parser recovers from broken markup.
      */
     readonly warnings: ErrorDetail[] = [];
 
@@ -426,9 +417,8 @@ export class XmlDocument extends XmlDisposable<XmlDocument> {
     /**
      * Parse and create an {@link XmlDocument} from an HTML string, using libxml2's HTML parser.
      *
-     * Like the underlying HTML parser, this is lenient: it repairs broken markup rather than
-     * throwing, and adds implied `<html>`/`<head>`/`<body>` elements unless
-     * {@link HtmlParseOption.HTML_PARSE_NOIMPLIED} is set.
+     * Broken markup is repaired rather than rejected; {@link XmlParseError} is thrown only
+     * when no document is produced (e.g. empty input).
      *
      * Note: Only UTF-8 encoding is supported for string input.
      * For other encodings, use {@link fromHtmlBuffer} instead.
@@ -460,9 +450,8 @@ export class XmlDocument extends XmlDisposable<XmlDocument> {
     /**
      * Parse and create an {@link XmlDocument} from an HTML buffer, using libxml2's HTML parser.
      *
-     * Like the underlying HTML parser, this is lenient: it repairs broken markup rather than
-     * throwing, and adds implied `<html>`/`<head>`/`<body>` elements unless
-     * {@link HtmlParseOption.HTML_PARSE_NOIMPLIED} is set.
+     * Broken markup is repaired rather than rejected; {@link XmlParseError} is thrown only
+     * when no document is produced (e.g. empty input).
      *
      * @param source The HTML buffer
      * @param options Parsing options

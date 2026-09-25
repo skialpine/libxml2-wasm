@@ -30,9 +30,6 @@ describe('fromHtmlString', () => {
     });
 
     it('should recover from broken markup and still build a tree, instead of throwing', () => {
-        // An unmatched end tag is an ERROR-level (2) diagnostic, but the HTML parser
-        // still builds a best-effort tree (dropping the stray </span>) rather than
-        // aborting the parse.
         using doc = XmlDocument.fromHtmlString('<div></span></div>');
         expect(doc.get('//div')?.content).to.equal('');
         expect(doc.get('//span')).to.equal(null);
@@ -58,8 +55,6 @@ describe('fromHtmlString', () => {
     });
 
     it('should decode as UTF-8 even when a <meta charset> claims otherwise', () => {
-        // String input is always UTF-8 (forced regardless of options.encoding), so an
-        // in-document <meta charset> that disagrees must not override it.
         using doc = XmlDocument.fromHtmlString(
             '<html><head><meta charset="iso-8859-1"></head><body><p>café 日本語</p></body></html>',
         );
@@ -80,9 +75,7 @@ describe('fromHtmlBuffer', () => {
     });
 
     it('should round-trip UTF-8 encoded non-ASCII characters given an explicit encoding', () => {
-        // Unlike the XML parser, HTML defaults to windows-1252 (HTMLparser.c) when the
-        // input has neither a byte-order mark nor a <meta charset>, so a caller feeding
-        // it known-UTF-8 bytes must say so explicitly.
+        // Without a BOM or <meta charset>, the HTML parser defaults to windows-1252.
         using doc = XmlDocument.fromHtmlBuffer(
             new TextEncoder().encode('<html><body><p>café 日本語</p></body></html>'),
             { encoding: 'utf-8' },
@@ -111,15 +104,11 @@ describe('HTML serialization', () => {
         using doc = XmlDocument.fromHtmlString(
             '<html><body><br><img src="a.png"></body></html>',
         );
-        // HTML syntax leaves void elements unclosed, unlike XML/XHTML syntax.
         expect(doc.toString({ asHtml: true })).to.contain('<br>');
         expect(doc.toString({ asHtml: true })).to.contain('<img src="a.png">');
     });
 
     it('should already save as HTML by default, without asHtml, for a parsed HTML document', () => {
-        // libxml2 dispatches on the document's own type (set by the HTML parser), so
-        // a document from fromHtmlString/fromHtmlBuffer round-trips as HTML even without
-        // asHtml; the option exists for forcing HTML syntax onto other documents.
         using doc = XmlDocument.fromHtmlString('<html><body><br></body></html>');
         expect(doc.toString()).to.contain('<br>');
     });

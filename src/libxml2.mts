@@ -173,6 +173,40 @@ export function xmlReadMemory(
     );
 }
 
+export function htmlReadString(
+    ctxt: XmlParserCtxtPtr,
+    htmlString: string,
+    url: string | null,
+    encoding: string | null,
+    options: number,
+): XmlDocPtr {
+    return withStringUTF8(
+        htmlString,
+        (htmlBuf, len) => withStrings(
+            (urlBuf, enc) => libxml2._htmlCtxtReadMemory(ctxt, htmlBuf, len, urlBuf, enc, options),
+            url,
+            encoding,
+        ),
+    );
+}
+
+export function htmlReadMemory(
+    ctxt: XmlParserCtxtPtr,
+    htmlBuffer: Uint8Array,
+    url: string | null,
+    encoding: string | null,
+    options: number,
+): XmlDocPtr {
+    return withCString(
+        htmlBuffer,
+        (htmlBuf, len) => withStrings(
+            (urlBuf, enc) => libxml2._htmlCtxtReadMemory(ctxt, htmlBuf, len, urlBuf, enc, options),
+            url,
+            encoding,
+        ),
+    );
+}
+
 export function xmlXPathRegisterNs(ctx: XmlXPathContextPtr, prefix: string, uri: string): number {
     return withStrings(
         (bufPrefix, bufUri) => libxml2._xmlXPathRegisterNs(ctx, bufPrefix, bufUri),
@@ -598,6 +632,14 @@ export interface SaveOptions {
      * @default The original encoding of the document or utf-8
      */
     encoding?: string;
+
+    /**
+     * Serialize using HTML syntax (unescaped `<script>`/`<style>` content, void
+     * elements without a closing slash, etc.) instead of XML syntax.
+     *
+     * @default false
+     */
+    asHtml?: boolean;
 }
 
 export function xmlSaveOption(options?: SaveOptions): number {
@@ -613,6 +655,9 @@ export function xmlSaveOption(options?: SaveOptions): number {
     }
     if (options.noEmptyTags) {
         flags |= 1 << 2;
+    }
+    if (options.asHtml) {
+        flags |= 1 << 6; // XML_SAVE_AS_HTML
     }
     return flags;
 }
@@ -779,6 +824,7 @@ export const xmlFreeDtd = libxml2._xmlFreeDtd;
 export const xmlFreeParserCtxt = libxml2._xmlFreeParserCtxt;
 export const xmlGetIntSubset = libxml2._xmlGetIntSubset;
 export const xmlGetLastError = libxml2._xmlGetLastError;
+export const htmlNewParserCtxt = libxml2._htmlNewParserCtxt;
 export const xmlNewDoc = libxml2._xmlNewDoc;
 export const xmlNewParserCtxt = libxml2._xmlNewParserCtxt;
 export const xmlRelaxNGFree = libxml2._xmlRelaxNGFree;

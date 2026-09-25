@@ -212,7 +212,7 @@ export interface ParseOptions {
 }
 
 /**
- * Options for the HTML parser, passed to #htmlCtxtReadMemory.
+ * Options for {@link XmlDocument.fromHtmlString} and {@link XmlDocument.fromHtmlBuffer}.
  * @see https://gnome.pages.gitlab.gnome.org/libxml2/html/libxml2-HTMLparser.html
  */
 export enum HtmlParseOption {
@@ -262,9 +262,13 @@ export enum HtmlParseOption {
     // so it can't be honored by an API that always returns a parsed XmlDocument.
 }
 
+/**
+ * Options for {@link XmlDocument.fromHtmlString} and {@link XmlDocument.fromHtmlBuffer}.
+ */
 export interface HtmlParseOptions {
     /**
-     * The URL of the document.
+     * The URL of the document, used as the base for resolving relative URLs and as the
+     * `file` reported on {@link XmlDocument.warnings}.
      *
      * It can be used as a base to calculate the URL of other included documents.
      */
@@ -272,9 +276,11 @@ export interface HtmlParseOptions {
     /**
      * The encoding of the input.
      *
-     * @default Sniffed from a `<meta charset>`/BOM, falling back to ISO-8859-1.
+     * @default Sniffed from a `<meta charset>`/BOM, falling back to windows-1252
+     * (see `HTMLparser.c`; libxml2's HTML parser defaults to windows-1252, not ISO-8859-1).
      */
     encoding?: string;
+    /** Parser options, combined with bitwise OR. */
     option?: HtmlParseOption;
 }
 
@@ -300,6 +306,7 @@ function parse<Input>(
     // (HTMLparser.h: "HTML_PARSE_RECOVER: No effect as of 2.14.0" - recovery is
     // unconditional), so an ERROR-level diagnostic there doesn't mean parsing failed.
     alwaysRecovers = false,
+    noDocMessage = 'Failed to parse XML',
 ): XmlDocument {
     const xmlOptions = options.option ?? 0;
     const ctxt = newCtxt();
@@ -315,24 +322,26 @@ function parse<Input>(
     let warnings: ErrorDetail[] = [];
     try {
         const errDetails = error.storage.get(errIndex);
-        // Warnings (level 1) are non-fatal: libxml2 still returns a valid document.
-        // Only error/fatal diagnostics, or a null result, count as a parse failure.
+        // For XML, warnings (level 1) are non-fatal, but an error/fatal diagnostic (or a
+        // null result) means no usable document was produced, so it's a parse failure.
+        // For HTML (alwaysRecovers), only a null result counts: the parser recovers from
+        // broken markup and still builds a tree regardless of diagnostic level.
         const fatal = !alwaysRecovers && errDetails.some((d) => d.level >= XML_ERR_ERROR);
         if (fatal || !xml) {
             if (xml) {
-                // A document was produced (e.g. XML_PARSE_RECOVER) but is being
-                // discarded; free it here since no wrapper/finalizer will own it.
+                // A document was produced (e.g. XML_PARSE_RECOVER, or any HTML parse) but
+                // is being discarded; free it here since no wrapper/finalizer will own it.
                 xmlFreeDoc(xml);
             }
             throw new XmlParseError(
                 errDetails.length > 0
                     ? errDetails.map((d) => d.message).join('')
-                    : 'Failed to parse XML', // no diagnostics, usually invalid input
+                    : noDocMessage, // no diagnostics, usually invalid input
                 errDetails,
             );
         }
-        // Every diagnostic here is non-fatal (a warning); surface it on the document
-        // before the storage slot is freed below.
+        // Every diagnostic here is non-fatal for XML, or simply recoverable for HTML;
+        // surface it on the document before the storage slot is freed below.
         warnings = errDetails;
     } finally {
         error.storage.free(errIndex);
@@ -371,7 +380,8 @@ export class XmlDocument extends XmlDisposable<XmlDocument> {
      * For {@link fromHtmlString} and {@link fromHtmlBuffer}, the HTML parser always
      * recovers from broken markup and still builds a tree, so this can also hold
      * error-level diagnostics; {@link XmlParseError} is only thrown when no document
-     * could be produced at all (e.g. an unsupported encoding).
+     * could be produced at all (e.g. empty input). An unrecognized `encoding` doesn't
+     * count as a failure either: it falls back to sniffing and reports a warning.
      */
     readonly warnings: ErrorDetail[] = [];
 
@@ -446,6 +456,7 @@ export class XmlDocument extends XmlDisposable<XmlDocument> {
             { ...options, encoding: 'utf-8' },
             htmlNewParserCtxt,
             /* alwaysRecovers */ true,
+            'Failed to parse HTML',
         );
     }
 
@@ -470,6 +481,7 @@ export class XmlDocument extends XmlDisposable<XmlDocument> {
             options,
             htmlNewParserCtxt,
             /* alwaysRecovers */ true,
+            'Failed to parse HTML',
         );
     }
 

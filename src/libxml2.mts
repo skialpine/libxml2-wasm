@@ -637,6 +637,9 @@ export interface SaveOptions {
      * Serialize using HTML syntax (unescaped `<script>`/`<style>` content, void
      * elements without a closing slash, etc.) instead of XML syntax.
      *
+     * Documents parsed with fromHtmlString/fromHtmlBuffer are always serialized as HTML;
+     * this option forces HTML syntax for XML documents and their nodes.
+     *
      * @default false
      */
     asHtml?: boolean;
@@ -810,6 +813,7 @@ export function allocCStringArray(strings: string[]): Pointer {
 }
 
 export const free = libxml2._free;
+export const htmlNewParserCtxt = libxml2._htmlNewParserCtxt;
 
 export const xmlAddChild = libxml2._xmlAddChild;
 export const xmlAddNextSibling = libxml2._xmlAddNextSibling;
@@ -824,7 +828,6 @@ export const xmlFreeDtd = libxml2._xmlFreeDtd;
 export const xmlFreeParserCtxt = libxml2._xmlFreeParserCtxt;
 export const xmlGetIntSubset = libxml2._xmlGetIntSubset;
 export const xmlGetLastError = libxml2._xmlGetLastError;
-export const htmlNewParserCtxt = libxml2._htmlNewParserCtxt;
 export const xmlNewDoc = libxml2._xmlNewDoc;
 export const xmlNewParserCtxt = libxml2._xmlNewParserCtxt;
 export const xmlRelaxNGFree = libxml2._xmlRelaxNGFree;

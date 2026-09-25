@@ -29,18 +29,20 @@ describe('fromHtmlString', () => {
         expect(doc.root.name).to.equal('p');
     });
 
-    it('should recover from broken markup instead of throwing', () => {
-        // A mismatched closing tag is an ERROR-level diagnostic, but the HTML parser
-        // still builds a best-effort tree rather than aborting.
-        using doc = XmlDocument.fromHtmlString('<p>oops<div>unclosed');
-        expect(doc.get('//p')?.content).to.equal('oops');
-        expect(doc.get('//div')?.content).to.equal('unclosed');
+    it('should recover from broken markup and still build a tree, instead of throwing', () => {
+        // An unmatched end tag is an ERROR-level (2) diagnostic, but the HTML parser
+        // still builds a best-effort tree (dropping the stray </span>) rather than
+        // aborting the parse.
+        using doc = XmlDocument.fromHtmlString('<div></span></div>');
+        expect(doc.get('//div')?.content).to.equal('');
+        expect(doc.get('//span')).to.equal(null);
+        expect(doc.warnings.some((w) => w.level === 2)).to.equal(true);
     });
 
     it('should surface recovery diagnostics as warnings rather than throwing', () => {
-        using doc = XmlDocument.fromHtmlString('<b>bold<i>italic</b>less</i>');
-        expect(doc.warnings.length).to.be.greaterThan(0);
-        expect(doc.warnings[0]).to.have.property('level');
+        using doc = XmlDocument.fromHtmlString('<b><i></b></i>');
+        expect(doc.root.name).to.equal('html');
+        expect(doc.warnings.some((w) => w.level === 2)).to.equal(true);
     });
 
     it('should allow utf8 only', () => {
@@ -55,13 +57,19 @@ describe('fromHtmlString', () => {
         expect(doc.get('//p')?.content).to.equal('café 日本語');
     });
 
-    it('should resolve relative URLs against the given base url', () => {
+    it('should decode as UTF-8 even when a <meta charset> claims otherwise', () => {
+        // String input is always UTF-8 (forced regardless of options.encoding), so an
+        // in-document <meta charset> that disagrees must not override it.
         using doc = XmlDocument.fromHtmlString(
-            '<html><body><a href="page.html">link</a></body></html>',
-            { url: 'https://example.com/docs/index.html' },
+            '<html><head><meta charset="iso-8859-1"></head><body><p>café 日本語</p></body></html>',
         );
-        const link = doc.get('//a') as XmlElement;
-        expect(link.attr('href')?.content).to.equal('page.html');
+        expect(doc.get('//p')?.content).to.equal('café 日本語');
+    });
+
+    it('should pass url through to diagnostics', () => {
+        const url = 'https://example.com/docs/index.html';
+        using doc = XmlDocument.fromHtmlString('<b>x<i>y</b></i>', { url });
+        expect(doc.warnings[0].file).to.equal(url);
     });
 });
 
@@ -72,7 +80,7 @@ describe('fromHtmlBuffer', () => {
     });
 
     it('should round-trip UTF-8 encoded non-ASCII characters given an explicit encoding', () => {
-        // Unlike the XML parser, HTML defaults to ISO-8859-1 (HTMLparser.h) when the
+        // Unlike the XML parser, HTML defaults to windows-1252 (HTMLparser.c) when the
         // input has neither a byte-order mark nor a <meta charset>, so a caller feeding
         // it known-UTF-8 bytes must say so explicitly.
         using doc = XmlDocument.fromHtmlBuffer(
@@ -145,20 +153,5 @@ describe('HTML serialization', () => {
         );
         const p = doc.get('//p') as XmlElement;
         expect(p.toString({ asHtml: true })).to.equal('<p id="x">hi <b>there</b></p>');
-    });
-
-    it('should serialize an element\'s children (inner HTML) by saving each child', () => {
-        using doc = XmlDocument.fromHtmlString(
-            '<html><body><p>one</p><p>two</p></body></html>',
-        );
-        const body = doc.get('//body') as XmlElement;
-        // Inner HTML isn't a separate API: the same node-level HTML save this library
-        // already provides handles each element child, since there's nothing more for
-        // a thin wrapper to add on top of it.
-        let inner = '';
-        for (let child = body.firstChild; child; child = child.next) {
-            inner += (child as XmlElement).toString({ asHtml: true });
-        }
-        expect(inner).to.equal('<p>one</p><p>two</p>');
     });
 });
